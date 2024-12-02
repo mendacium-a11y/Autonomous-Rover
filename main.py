@@ -2,27 +2,36 @@ import cv2
 import numpy as np
 import tensorflow as tf
 import time
+from gpiozero import Motor
+
+left_side_motor = Motor(forward=6, backward=5, pwm=True)
+right_side_motor = Motor(forward=16, backward=25, pwm=True)
 
 # Load the pre-trained MobileNet SSD model
 model = tf.saved_model.load("model/saved_model")  # Update path if needed
 detect_fn = model.signatures['serving_default']
 
-coco_labels = {1:"person",2:"bicycle", 3:"car", 4:"motorcycle", 6:"bus", 8:"truck"}
+coco_labels = {1: "person", 2: "bicycle", 3: "car", 4: "motorcycle", 6: "bus", 8: "truck"}
 
-def go_forward():
+def go_forward(pwm = 0.5):
+    left_side_motor.forward(speed=pwm)
+    right_side_motor.forward(speed=pwm)
     print("Go Forward")
 
 def stop():
+    left_side_motor.stop()
+    right_side_motor.stop() 
     print("Stop")
+
 # Function to run object detection on a single frame
 def detect_objects(frame):
     # Convert the frame to a tensor and prepare for detection
     input_tensor = tf.convert_to_tensor(frame)
     input_tensor = input_tensor[tf.newaxis, ...]
-    
+
     # Run detection
     detections = detect_fn(input_tensor)
-    
+
     # Extract detection results
     detection_scores = detections['detection_scores'][0].numpy()
     detection_classes = detections['detection_classes'][0].numpy().astype(np.int32)
@@ -45,7 +54,7 @@ while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
         break
-    
+
     person_flag = False
     other_object_flag = False
 
@@ -59,7 +68,6 @@ while cap.isOpened():
     for i in range(len(scores)):
         if int(classes[i]) in coco_labels and scores[i] >= 0.5:  # Adjust confidence threshold as needed
             # Draw bounding box
-            print(f"class detected {coco_labels[int(classes[i])]}")
             box = boxes[i]
             h, w, _ = frame.shape
             ymin, xmin, ymax, xmax = box
@@ -68,7 +76,12 @@ while cap.isOpened():
             lenght = xmax - xmin
             height = ymax - ymin
             area_temp = lenght * height
-            class_id = classes[i]
+            class_id = int(classes[i])
+            cv2.rectangle(frame, start_point, end_point, (0, 255, 0), 2)
+
+            # Display class label and confidence
+            label = f"{coco_labels[class_id]}: {int(scores[i] * 100)}%  Area: {area_temp}"
+            cv2.putText(frame, label, start_point, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
             if coco_labels[class_id] == "person" and area_temp > person_area:
                 person_flag = True
                 person_area = area_temp
@@ -76,21 +89,15 @@ while cap.isOpened():
             elif coco_labels[class_id] != "person" and area_temp > other_object_area:
                 other_object_flag = True
                 other_object_area = area_temp
-                
-            cv2.rectangle(frame, start_point, end_point, (0, 255, 0), 2)
-            
-            # Display class label and confidence
-            label = f"{coco_labels[class_id]}: {int(scores[i] * 100)}%"
-            cv2.putText(frame, label, start_point, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
     if person_flag and person_area > 0.5:
         stop()
     elif other_object_flag and 0.5 <= other_object_area <= 0.75:
-        go_forward()
+        go_forward(pwm = 0.5)
     elif other_object_flag and other_object_area > 0.75:
         stop()
     else:
-        go_forward()
+        go_forward(pwm = 1)
 
     # Calculate FPS
     fps_end_time = time.time()
