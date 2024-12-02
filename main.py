@@ -38,22 +38,28 @@ print("Camera status", cap.isOpened())
 fps_start_time = time.time()
 frame_count = 0
 
+person_flag = False
+other_object_flag = False
 
 while cap.isOpened():
     ret, frame = cap.read()
     if not ret:
         break
     
+    person_flag = False
+    other_object_flag = False
+
     frame_count += 1
 
     # Run object detection
     boxes, classes, scores = detect_objects(frame)
-    lenght, height, area = 0, 0, 0
+    lenght, height, person_area, other_object_area = 0, 0, 0, 0
 
     # Filter out low confidence scores
     for i in range(len(scores)):
         if int(classes[i]) in coco_labels and scores[i] >= 0.5:  # Adjust confidence threshold as needed
             # Draw bounding box
+            print(f"class detected {coco_labels[int(classes[i])]}")
             box = boxes[i]
             h, w, _ = frame.shape
             ymin, xmin, ymax, xmax = box
@@ -62,16 +68,26 @@ while cap.isOpened():
             lenght = xmax - xmin
             height = ymax - ymin
             area_temp = lenght * height
-            if area_temp > area:
-                area = area_temp
+            class_id = classes[i]
+            if coco_labels[class_id] == "person" and area_temp > person_area:
+                person_flag = True
+                person_area = area_temp
+                break
+            elif coco_labels[class_id] != "person" and area_temp > other_object_area:
+                other_object_flag = True
+                other_object_area = area_temp
+                
             cv2.rectangle(frame, start_point, end_point, (0, 255, 0), 2)
             
             # Display class label and confidence
-            class_id = classes[i]
             label = f"{coco_labels[class_id]}: {int(scores[i] * 100)}%"
             cv2.putText(frame, label, start_point, cv2.FONT_HERSHEY_SIMPLEX, 0.5, (255, 255, 255), 1)
 
-    if area > 0.5:
+    if person_flag and person_area > 0.5:
+        stop()
+    elif other_object_flag and 0.5 <= other_object_area <= 0.75:
+        go_forward()
+    elif other_object_flag and other_object_area > 0.75:
         stop()
     else:
         go_forward()
